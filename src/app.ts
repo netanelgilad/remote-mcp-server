@@ -99,7 +99,6 @@ app.get("/callback", async (c: Context) => {
 		}
 
 		const tokenData = await tokenResponse.json() as WixTokenResponse;
-		console.log("Token response:", tokenData);
 
 		// Get user info from token
 		const tokenInfoResponse = await fetch('https://www.wixapis.com/oauth2/token-info', {
@@ -125,7 +124,6 @@ app.get("/callback", async (c: Context) => {
 		}
 
 		const tokenInfo = await tokenInfoResponse.json() as WixTokenInfo;
-		console.log("Token info response:", tokenInfo);
 		
 		// Complete the authorization with the OAuth provider
 		const { redirectTo } = await c.env.OAUTH_PROVIDER.completeAuthorization({
