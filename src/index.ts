@@ -11,10 +11,6 @@ export class MyMCP extends McpAgent {
 	});
 
 	async init() {
-		this.server.tool("add", { a: z.number(), b: z.number() }, async ({ a, b }) => ({
-			content: [{ type: "text", text: String(a + b) }],
-		}));
-
 		this.server.tool("list sites", "List all sites for the current user", async () => {
 			const sites = await fetch("https://www.wixapis.com/site-list/v2/sites/query", {
 				method: "POST",
