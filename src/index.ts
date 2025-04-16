@@ -28,7 +28,9 @@ export class MyMCP extends McpAgent {
 					"Authorization": this.props.accessToken as string,
 				},
 				body: JSON.stringify({
-					query: {}
+					query: {
+						"cursorPaging": {"limit": 50}
+					}
 				})
 			})
 
