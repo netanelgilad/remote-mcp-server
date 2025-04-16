@@ -28,15 +28,61 @@ export class MyMCP extends McpAgent {
 					"Authorization": this.props.accessToken as string,
 				},
 				body: JSON.stringify({
-					query: {
-						filter: { editorType: "EDITOR" },
-						sort: [{ fieldName: "createdDate", order: "ASC" }],
-						cursorPaging: { limit: 2 }
-					}
+					query: {}
 				})
 			})
 
 			const result = await sites.json();
+
+			return {
+				content: [{
+					type: "text",
+					text: JSON.stringify(result)
+				}]
+			}
+		});
+
+		this.server.tool("Query Products", "Query products for a wix site", { siteId: z.string() }, async (args) => {
+			// Get a site-specific token using the refresh token
+			const siteTokenResponse = await fetch("https://www.wixapis.com/oauth2/token", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					clientId: env.WIX_CLIENT_ID,
+					clientSecret: env.WIX_CLIENT_SECRET,
+					grantType: "refresh_token",
+					refreshToken: this.props.refreshToken as string,
+					siteId: args.siteId
+				})
+			});
+
+			if (!siteTokenResponse.ok) {
+				return {
+					content: [{
+						type: "text",
+						text: `Failed to get site token: ${siteTokenResponse.status} ${siteTokenResponse.statusText}`
+					}]
+				};
+			}
+
+			const siteTokenData = await siteTokenResponse.json() as WixTokenResponse;
+			const siteAccessToken = siteTokenData.access_token;
+
+			
+			const products = await fetch(`https://www.wixapis.com/stores/v1/products/query`, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"Authorization": siteAccessToken as string,
+				},
+				body: JSON.stringify({
+					includeVariants: true
+				})
+			})
+
+			const result = await products.json();
 
 			return {
 				content: [{
