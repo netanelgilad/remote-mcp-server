@@ -1,6 +1,7 @@
 import type { OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import type { Context } from "hono";
 import { Hono } from "hono";
+import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import {
 	homeContent,
 	layout,
@@ -28,7 +29,6 @@ interface AuthRequest {
 export type Bindings = Env & {
 	OAUTH_PROVIDER: OAuthHelpers;
 	WIX_CLIENT_ID: string;
-	WIX_CLIENT_SECRET: string;
 };
 
 const app = new Hono<{
@@ -41,6 +41,31 @@ app.get("/", async (c: Context) => {
 	return c.html(layout(content, "MCP Remote Auth Demo - Home"));
 });
 
+// Helper function to generate a random string for the code verifier
+function generateRandomString(length: number): string {
+	const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
+	let result = '';
+	const charactersLength = characters.length;
+	const randomValues = new Uint8Array(length);
+	crypto.getRandomValues(randomValues);
+	for (let i = 0; i < length; i++) {
+		result += characters.charAt(randomValues[i] % charactersLength);
+	}
+	return result;
+}
+
+// Helper function to generate the code challenge from the code verifier
+async function generateCodeChallenge(verifier: string): Promise<string> {
+	const encoder = new TextEncoder();
+	const data = encoder.encode(verifier);
+	const digest = await crypto.subtle.digest('SHA-256', data);
+	// Base64 URL encode the digest
+	return btoa(String.fromCharCode(...new Uint8Array(digest)))
+		.replace(/\+/g, '-')
+		.replace(/\//g, '_')
+		.replace(/=+$/, '');
+}
+
 // Wix OAuth callback endpoint
 app.get("/callback", async (c: Context) => {
 	try {
@@ -48,7 +73,15 @@ app.get("/callback", async (c: Context) => {
 
 		console.log(c.req.query())
 		
-		if (!code || !state) {
+		// Retrieve the code verifier from the cookie
+		const codeVerifier = getCookie(c, 'wix_code_verifier');
+
+		if (!code || !state || !codeVerifier) {
+			console.error("Missing code, state, or code verifier cookie");
+			// Clean up cookie if it exists but other params are missing
+			if (codeVerifier) {
+				deleteCookie(c, 'wix_code_verifier', { path: '/', httpOnly: true, secure: true });
+			}
 			return c.html(
 				layout(
 					await renderAuthorizationRejectedContent("/"),
@@ -70,6 +103,9 @@ app.get("/callback", async (c: Context) => {
 			);
 		}
 		
+		// Clear the code verifier cookie now that we have it
+		deleteCookie(c, 'wix_code_verifier', { path: '/', httpOnly: true, secure: true });
+
 		// Exchange code for tokens
 		const tokenResponse = await fetch("https://www.wixapis.com/oauth2/token", {
 			method: "POST",
@@ -77,12 +113,11 @@ app.get("/callback", async (c: Context) => {
 				"Content-Type": "application/json",
 			},
 			body: JSON.stringify({
-				clientId: c.env.WIX_CLIENT_ID,
-				clientSecret: c.env.WIX_CLIENT_SECRET,
-				grantType: "authorization_code",
+				client_id: c.env.WIX_CLIENT_ID,
+				grant_type: "authorization_code",
 				code: code as string,
-				redirectUri: `${new URL(c.req.url).origin}/callback`,
-				scope: "offline_access",
+				redirect_uri: `${new URL(c.req.url).origin}/callback`,
+				code_verifier: codeVerifier,
 			}),
 		});
 
@@ -158,6 +193,19 @@ app.get("/authorize", async (c: Context) => {
 	const clientId = c.env.WIX_CLIENT_ID;
 	const redirectUri = `${new URL(c.req.url).origin}/callback`;
 	
+	// Generate PKCE parameters
+	const codeVerifier = generateRandomString(128);
+	const codeChallenge = await generateCodeChallenge(codeVerifier);
+
+	// Store code verifier in a secure cookie
+	setCookie(c, 'wix_code_verifier', codeVerifier, {
+		path: '/',
+		secure: true,
+		httpOnly: true,
+		maxAge: 600, // 10 minutes validity
+		sameSite: 'Lax'
+	});
+
 	// Create the base authorization URL
 	const baseAuthUrl = "https://users.wix.com/v1/oauth/authorize";
 
@@ -171,9 +219,11 @@ app.get("/authorize", async (c: Context) => {
 
 	const postSignUpUrl = `https://users.wix.com/v1/oauth/authorize?${new URLSearchParams(baseParams).toString()}`;
 	
-	// Create the final authorization URL with encoded postSignUp parameter
+	// Create the final authorization URL with encoded postSignUp parameter and PKCE params
 	const authParams = new URLSearchParams({
 		...baseParams,
+		code_challenge: codeChallenge,
+		code_challenge_method: "S256",
 		signInUrl: `https://users.wix.com/signin?postSignUp=${encodeURIComponent(postSignUpUrl)}`
 	});
 	
