@@ -53,7 +53,6 @@ export class MyMCP extends McpAgent {
 				},
 				body: JSON.stringify({
 					clientId: env.WIX_CLIENT_ID,
-					clientSecret: env.WIX_CLIENT_SECRET,
 					grantType: "refresh_token",
 					refreshToken: this.props.refreshToken as string,
 					siteId: args.siteId
@@ -126,7 +125,6 @@ export default new OAuthProvider({
 				},
 				body: JSON.stringify({
 					clientId: env.WIX_CLIENT_ID,
-					clientSecret: env.WIX_CLIENT_SECRET,
 					grantType: "refresh_token",
 					refreshToken: options.props.refreshToken,
 				}),
